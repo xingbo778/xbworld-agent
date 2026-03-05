@@ -166,11 +166,14 @@ header h1 { font-size: 16px; font-weight: 600; color: #58a6ff; }
 
 .grid {
     display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
-    background: #30363d; min-height: calc(100vh - 49px);
+    background: #30363d;
 }
 .panel {
     background: #0d1117; padding: 12px 16px; overflow: hidden; display: flex; flex-direction: column;
+    max-height: 500px;
 }
+.panel.panel-short { max-height: 300px; }
+.panel.panel-tall { max-height: 700px; }
 .panel-title {
     font-size: 13px; font-weight: 600; color: #8b949e; text-transform: uppercase;
     letter-spacing: 0.5px; margin-bottom: 8px; flex-shrink: 0;
@@ -298,7 +301,7 @@ header h1 { font-size: 16px; font-weight: 600; color: #58a6ff; }
 
 <div class="grid">
     <!-- Status Panel -->
-    <div class="panel">
+    <div class="panel panel-short">
         <div class="panel-title">Game Status</div>
         <div class="panel-body">
             <div class="status-grid" id="status-grid"></div>
@@ -306,7 +309,7 @@ header h1 { font-size: 16px; font-weight: 600; color: #58a6ff; }
     </div>
 
     <!-- Live Events -->
-    <div class="panel">
+    <div class="panel panel-short">
         <div class="panel-title">Live Events</div>
         <div class="panel-body" id="events-body"></div>
     </div>
@@ -404,6 +407,7 @@ function addEvent(evt) {
 }
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function stripHtml(s) { const d = document.createElement('div'); d.innerHTML = s; return d.textContent || d.innerText || ''; }
 
 // --- Polling ---
 async function fetchStatus() {
@@ -527,9 +531,10 @@ async function fetchGame() {
         const gameMsgs = document.getElementById('game-messages');
         gameMsgs.innerHTML = `<div class="game-section-title">Server Messages</div>` +
             msgs.slice(-80).reverse().map(m => {
-                const text = typeof m === 'string' ? m : (m.message || m.text || JSON.stringify(m));
+                const raw = typeof m === 'string' ? m : (m.message || m.text || JSON.stringify(m));
+                const text = stripHtml(typeof raw === 'string' ? raw : JSON.stringify(raw));
                 const mtype = typeof m === 'object' ? (m.type || '') : '';
-                return `<div class="game-msg">${mtype ? `<span class="msg-event">[${escHtml(mtype)}]</span> ` : ''}${escHtml(typeof text === 'string' ? text : JSON.stringify(text))}</div>`;
+                return `<div class="game-msg">${mtype ? `<span class="msg-event">[${escHtml(mtype)}]</span> ` : ''}${escHtml(text)}</div>`;
             }).join('');
     } catch {}
 }
