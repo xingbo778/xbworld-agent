@@ -20,26 +20,26 @@ import uvicorn
 
 from game_client import GameClient
 from agent import XBWorldAgent
-from trace_server import EventBus, create_trace_app
+from event_bus import EventBus
+from trace_server import create_trace_app
 
 
 async def setup_game(client: GameClient):
     """Wait for connection and configure a new singleplayer game."""
-    await asyncio.sleep(3)
-
-    if not client.state.connected:
+    if not await client.wait_for_connection(timeout=10.0):
         print("[Error] Failed to connect to game server.")
         return False
 
     print("[Setup] Connected. Configuring game...")
     await client.send_chat("/set aifill 5")
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.3)
     await client.send_chat("/set timeout 0")
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.3)
 
     print("[Setup] Starting game...")
     await client.send_chat("/start")
-    await asyncio.sleep(2)
+    if not await client.wait_for_phase("playing", timeout=15.0):
+        await asyncio.sleep(1)
 
     print("[Setup] Game started. Agent taking control.\n")
     return True

@@ -150,8 +150,23 @@ class LLMEngine(DecisionEngine):
         return None
 
     def _trim_conversation(self):
-        if len(self.conversation) > 16:
-            self.conversation = [self.conversation[0]] + self.conversation[-10:]
+        if len(self.conversation) <= 16:
+            return
+        system_msg = self.conversation[0]
+        recent = self.conversation[-10:]
+        # Skip orphaned tool messages and incomplete tool_call groups at start
+        start = 0
+        while start < len(recent) and recent[start].get("role") == "tool":
+            start += 1
+        while start < len(recent):
+            msg = recent[start]
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                start += 1
+                while start < len(recent) and recent[start].get("role") == "tool":
+                    start += 1
+            else:
+                break
+        self.conversation = [system_msg] + recent[start:]
 
     async def close(self):
         if self._http_session and not self._http_session.closed:

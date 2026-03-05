@@ -11,6 +11,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Optional, Callable, Awaitable
+from urllib.parse import quote, unquote
 
 import aiohttp
 import websockets
@@ -147,6 +148,11 @@ class GameState:
     messages: list[dict] = field(default_factory=list)
     rulesets_ready: bool = False
 
+    # Caches for my_units/my_cities (invalidated on turn change or unit/city updates)
+    _cached_my_units: dict[int, dict] | None = field(default=None, repr=False)
+    _cached_my_cities: dict[int, dict] | None = field(default=None, repr=False)
+    _cache_turn: int = field(default=-1, repr=False)
+
     def add_message(self, msg: dict):
         self.messages.append(msg)
         if len(self.messages) > MAX_MESSAGES_KEPT:
@@ -155,13 +161,39 @@ class GameState:
     def my_player(self) -> Optional[dict]:
         return self.players.get(self.my_player_id)
 
+    def _invalidate_cache(self):
+        self._cached_my_units = None
+        self._cached_my_cities = None
+
     def my_units(self) -> dict[int, dict]:
-        return {uid: u for uid, u in self.units.items()
-                if u.get("owner") == self.my_player_id}
+        if self._cache_turn != self.turn:
+            self._invalidate_cache()
+            self._cache_turn = self.turn
+        if self._cached_my_units is None:
+            self._cached_my_units = {uid: u for uid, u in self.units.items()
+                                     if u.get("owner") == self.my_player_id}
+        return self._cached_my_units
 
     def my_cities(self) -> dict[int, dict]:
-        return {cid: c for cid, c in self.cities.items()
-                if c.get("owner") == self.my_player_id}
+        if self._cache_turn != self.turn:
+            self._invalidate_cache()
+            self._cache_turn = self.turn
+        if self._cached_my_cities is None:
+            self._cached_my_cities = {cid: c for cid, c in self.cities.items()
+                                      if c.get("owner") == self.my_player_id}
+        return self._cached_my_cities
+
+    def unit_type_name(self, type_id: int) -> str:
+        return self.unit_types.get(type_id, {}).get("name", f"unit_{type_id}")
+
+    def tech_name(self, tech_id: int) -> str:
+        return self.techs.get(tech_id, {}).get("name", f"tech_{tech_id}")
+
+    def building_name(self, building_id: int) -> str:
+        return self.buildings.get(building_id, {}).get("name", f"building_{building_id}")
+
+    def terrain_name(self, terrain_id: int) -> str:
+        return self.terrains.get(terrain_id, {}).get("name", f"terrain_{terrain_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -351,9 +383,9 @@ class GameClient:
     async def unit_found_city(self, unit_id: int, city_name: str = ""):
         """Order a settler to found a city on its current tile.
 
-        Sends PACKET_UNIT_DO_ACTION with ACTION_FOUND_CITY. If the settler
-        has no movement points left (e.g. it just moved), the action will
-        silently fail on the server side.
+        City name encoding/decoding is handled here — callers should pass
+        plain text names. The server expects URL-encoded names and sends
+        them back encoded in city_info packets (decoded in _on_city_info).
         """
         unit = self.state.units.get(unit_id)
         if not unit:
@@ -367,13 +399,15 @@ class GameClient:
             logger.warning("[%s] unit_found_city: settler %d has 0 MP, action will likely fail",
                            self.username, unit_id)
 
+        # Encode the name for the server protocol
+        encoded_name = quote(city_name.strip(), safe="") if city_name else ""
         await self.send_packet({
             "pid": PACKET_UNIT_DO_ACTION,
             "action_type": ACTION_FOUND_CITY,
             "actor_id": unit_id,
             "target_id": tile,
             "sub_tgt_id": 0,
-            "name": city_name or "",
+            "name": encoded_name,
         })
         return True
 
@@ -429,6 +463,26 @@ class GameClient:
             "is_ready": True,
             "player_no": player_num,
         })
+
+    # -- waiting helpers ----------------------------------------------------
+
+    async def wait_for_connection(self, timeout: float = 10.0) -> bool:
+        """Wait until the client is connected, polling with short sleeps."""
+        deadline = asyncio.get_event_loop().time() + timeout
+        while not self.state.connected:
+            if asyncio.get_event_loop().time() > deadline:
+                return False
+            await asyncio.sleep(0.2)
+        return True
+
+    async def wait_for_phase(self, phase: str, timeout: float = 30.0) -> bool:
+        """Wait until the game reaches a specific phase."""
+        deadline = asyncio.get_event_loop().time() + timeout
+        while self.state.phase != phase:
+            if asyncio.get_event_loop().time() > deadline:
+                return False
+            await asyncio.sleep(0.3)
+        return True
 
     # -- turn waiting -------------------------------------------------------
 
@@ -627,9 +681,9 @@ class GameClient:
         if cid is not None:
             name = pkt.get("name", "")
             if "%" in name:
-                from urllib.parse import unquote
                 pkt["name"] = unquote(name)
             self.state.cities[cid] = pkt
+            self.state._cached_my_cities = None
 
     def _on_city_short_info(self, pkt: dict):
         cid = pkt.get("id")
@@ -637,17 +691,20 @@ class GameClient:
             existing = self.state.cities.get(cid, {})
             existing.update(pkt)
             self.state.cities[cid] = existing
+            self.state._cached_my_cities = None
 
     def _on_city_remove(self, pkt: dict):
         cid = pkt.get("city_id")
         removed = self.state.cities.pop(cid, None)
         if removed:
+            self.state._cached_my_cities = None
             logger.info("[%s] City removed: id=%d name=%s", self.username, cid, removed.get("name", "?"))
 
     def _on_unit_info(self, pkt: dict):
         uid = pkt.get("id")
         if uid is not None:
             self.state.units[uid] = pkt
+            self.state._cached_my_units = None
 
     def _on_unit_short_info(self, pkt: dict):
         uid = pkt.get("id")
@@ -655,10 +712,13 @@ class GameClient:
             existing = self.state.units.get(uid, {})
             existing.update(pkt)
             self.state.units[uid] = existing
+            self.state._cached_my_units = None
 
     def _on_unit_remove(self, pkt: dict):
         uid = pkt.get("unit_id")
         removed = self.state.units.pop(uid, None)
+        if removed:
+            self.state._cached_my_units = None
         if removed and removed.get("owner") == self.state.my_player_id:
             type_name = self.state.unit_types.get(removed.get("type", -1), {}).get("name", "?")
             logger.info("[%s] My unit removed: id=%d type=%s tile=%d",
