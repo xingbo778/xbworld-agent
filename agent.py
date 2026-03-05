@@ -360,6 +360,7 @@ class XBWorldAgent:
 
         perf_summary = self.perf.end_turn()
         self._log_llm_detail("turn_perf", perf_summary)
+        self._publish_event("turn_end", perf_summary)
 
         p = self.client.state.my_player() or {}
         logger.info("[%s] === TURN %d END === perf: total=%.1fs llm=%.1fs tool=%.1fs idle=%.1fs "
@@ -396,6 +397,11 @@ class XBWorldAgent:
         self._log_llm_detail("response", {
             "elapsed_s": round(elapsed, 1),
             "raw_keys": list(data.keys()) if data else [],
+        })
+        self._publish_event("llm_response", {
+            "elapsed_s": round(elapsed, 1),
+            "provider": self._provider.name,
+            "model": self.llm_model,
         })
         return data
 
@@ -450,6 +456,7 @@ class XBWorldAgent:
                     self._publish_event("agent_action", {
                         "tool": fn_name, "args": fn_args,
                         "result": result[:200],
+                        "elapsed_s": round(tool_elapsed, 3),
                     })
 
                 tool_msg = self._provider.format_tool_results(tool_results, func_calls)
@@ -495,6 +502,27 @@ class XBWorldAgent:
             self.conversation = [system_msg] + cleaned
         else:
             self.conversation = cleaned
+
+    def get_conversation_safe(self, limit: int = 20) -> list[dict]:
+        """Return recent conversation messages, sanitized for JSON serialization."""
+        recent = self.conversation[-limit:]
+        safe = []
+        for msg in recent:
+            entry = {
+                "role": msg.get("role", "?"),
+                "content": str(msg.get("content", ""))[:2000],
+            }
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                entry["tool_calls"] = [
+                    {"name": tc.get("function", {}).get("name", "?"),
+                     "arguments": str(tc.get("function", {}).get("arguments", ""))[:500]}
+                    for tc in tool_calls
+                ] if isinstance(tool_calls, list) else []
+            if msg.get("role") == "tool":
+                entry["tool_call_id"] = msg.get("tool_call_id", "")
+            safe.append(entry)
+        return safe
 
     def get_status(self) -> dict:
         """Return a JSON-serializable status summary for API consumers."""

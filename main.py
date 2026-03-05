@@ -15,8 +15,11 @@ import asyncio
 import logging
 import sys
 
+import uvicorn
+
 from game_client import GameClient
 from agent import XBWorldAgent
+from trace_server import EventBus, create_trace_app
 
 
 async def setup_game(client: GameClient):
@@ -62,6 +65,8 @@ async def main():
                         help="Username for the agent player")
     parser.add_argument("--no-autostart", action="store_true",
                         help="Don't auto-configure and start the game")
+    parser.add_argument("--trace-port", type=int, default=8077,
+                        help="Port for tracing web dashboard (default: 8077)")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable debug logging")
     args = parser.parse_args()
@@ -89,16 +94,23 @@ async def main():
             if not ok:
                 return
 
-        agent = XBWorldAgent(client, name=username)
+        event_bus = EventBus()
+        agent = XBWorldAgent(client, name=username, event_bus=event_bus)
 
         print(f"\n[{username}] Waiting for game to start...")
-        print(f"[{username}] Type commands anytime. Press Enter with empty input for autonomous play.\n")
+        print(f"[{username}] Type commands anytime. Press Enter with empty input for autonomous play.")
+        print(f"[Trace] Dashboard at http://localhost:{args.trace_port}\n")
+
+        trace_app = create_trace_app(agent, client, event_bus)
+        config = uvicorn.Config(trace_app, host="0.0.0.0", port=args.trace_port, log_level="warning")
+        server = uvicorn.Server(config)
 
         input_task = asyncio.create_task(read_stdin(agent))
         game_task = asyncio.create_task(agent.run_game_loop())
+        server_task = asyncio.create_task(server.serve())
 
         try:
-            await asyncio.gather(input_task, game_task)
+            await asyncio.gather(input_task, game_task, server_task)
         except asyncio.CancelledError:
             pass
 
