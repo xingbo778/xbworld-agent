@@ -8,6 +8,7 @@ and per-turn performance metrics.
 
 import asyncio
 import json
+import re
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -91,7 +92,17 @@ def create_trace_app(agent, client, event_bus: EventBus) -> FastAPI:
                 "units": len(player_units),
             })
         players.sort(key=lambda x: (x["cities"], x["units"]), reverse=True)
-        return {"turn": s.turn, "year": s.year, "messages": messages, "players": players}
+        # Extract year from last "Year:" chat message
+        year = ""
+        for m in reversed(messages):
+            t = m.get("text", "") if isinstance(m, dict) else str(m)
+            if "Year:" in t:
+                import re
+                match = re.search(r"Year:\s*(.+?)(?:<|$)", t)
+                if match:
+                    year = match.group(1).strip()
+                break
+        return {"turn": s.turn, "year": year, "messages": messages, "players": players}
 
     @app.get("/api/events")
     async def api_events():
