@@ -517,8 +517,8 @@ async function fetchGame() {
         gameMsgs.innerHTML = `<div class="game-section-title">Server Messages</div>` +
             msgs.slice(-80).reverse().map(m => {
                 const text = typeof m === 'string' ? m : (m.message || m.text || JSON.stringify(m));
-                const isEvent = typeof m === 'object' && m.event;
-                return `<div class="game-msg">${isEvent ? `<span class="msg-event">[${escHtml(m.event)}]</span> ` : ''}${escHtml(typeof text === 'string' ? text : JSON.stringify(text))}</div>`;
+                const mtype = typeof m === 'object' ? (m.type || '') : '';
+                return `<div class="game-msg">${mtype ? `<span class="msg-event">[${escHtml(mtype)}]</span> ` : ''}${escHtml(typeof text === 'string' ? text : JSON.stringify(text))}</div>`;
             }).join('');
     } catch {}
 }
