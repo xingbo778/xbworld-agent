@@ -27,7 +27,7 @@ os.environ["PORT"] = "443"
 
 # LLM: use OpenAI-compatible API if OPENAI_API_KEY is set,
 # otherwise fall back to whatever is in config.py
-if os.environ.get("OPENAI_API_KEY") and not os.environ.get("COMPASS_API_KEY"):
+if os.environ.get("OPENAI_API_KEY") and not os.environ.get("LLM_API_KEY"):
     os.environ.setdefault("LLM_MODEL", "gpt-4.1-mini")
     os.environ.setdefault("LLM_API_KEY", os.environ["OPENAI_API_KEY"])
     os.environ.setdefault("LLM_BASE_URL", os.environ.get(

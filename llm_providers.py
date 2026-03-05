@@ -54,7 +54,7 @@ class LLMProvider(ABC):
 
 
 # ---------------------------------------------------------------------------
-# Gemini (native generateContent via Compass or direct)
+# Gemini (native generateContent API)
 # ---------------------------------------------------------------------------
 
 class GeminiProvider(LLMProvider):
@@ -305,8 +305,12 @@ class OpenAIProvider(LLMProvider):
 # ---------------------------------------------------------------------------
 
 def create_provider(model: str, api_key: str, base_url: str) -> LLMProvider:
-    """Auto-detect provider from model name or base URL."""
-    ml = model.lower()
-    if "gemini" in ml or "generateContent" in base_url:
+    """Auto-detect provider from model name or base URL.
+
+    Use Gemini native API only when talking directly to Google's endpoint.
+    For third-party providers (OpenRouter, etc.) always use OpenAI-compatible API,
+    even if the model name contains "gemini".
+    """
+    if "generateContent" in base_url or "generativelanguage.googleapis.com" in base_url:
         return GeminiProvider(model, api_key, base_url)
     return OpenAIProvider(model, api_key, base_url)
