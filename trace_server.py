@@ -73,6 +73,26 @@ def create_trace_app(agent, client, event_bus: EventBus) -> FastAPI:
     async def api_conversation(limit: int = 30):
         return {"messages": agent.get_conversation_safe(limit)}
 
+    @app.get("/api/game")
+    async def api_game(limit: int = 100):
+        s = client.state
+        messages = s.messages[-limit:] if s.messages else []
+        players = []
+        for pid, p in s.players.items():
+            player_cities = [c for c in s.cities.values() if c.get("owner") == pid]
+            player_units = [u for u in s.units.values() if u.get("owner") == pid]
+            players.append({
+                "id": pid,
+                "name": p.get("name", f"player_{pid}"),
+                "is_alive": p.get("is_alive", True),
+                "is_ai": pid != s.my_player_id,
+                "gold": p.get("gold"),
+                "cities": len(player_cities),
+                "units": len(player_units),
+            })
+        players.sort(key=lambda x: (x["cities"], x["units"]), reverse=True)
+        return {"turn": s.turn, "year": s.year, "messages": messages, "players": players}
+
     @app.get("/api/events")
     async def api_events():
         queue = event_bus.subscribe()
@@ -222,6 +242,23 @@ header h1 { font-size: 16px; font-weight: 600; color: #58a6ff; }
 .perf-legend-item { display: flex; align-items: center; gap: 4px; }
 .perf-legend-dot { width: 10px; height: 10px; border-radius: 2px; }
 
+/* Game Log */
+.player-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: 'SF Mono', Consolas, monospace; margin-bottom: 12px; }
+.player-table th { text-align: left; color: #8b949e; padding: 4px 8px; border-bottom: 1px solid #30363d; position: sticky; top: 0; background: #0d1117; }
+.player-table td { padding: 3px 8px; border-bottom: 1px solid #21262d; }
+.player-table tr.is-me { background: rgba(31, 111, 235, 0.1); }
+.player-table tr.is-dead { opacity: 0.4; text-decoration: line-through; }
+.player-table td.p-name { color: #f0f6fc; font-weight: 500; }
+.player-table td.p-gold { color: #f5c542; }
+.player-table td.p-cities { color: #3fb950; }
+.player-table td.p-units { color: #bc8cff; }
+.game-msg {
+    padding: 3px 0; border-bottom: 1px solid #21262d; font-size: 12px;
+    font-family: 'SF Mono', Consolas, monospace; color: #8b949e;
+}
+.game-msg .msg-event { color: #f0883e; }
+.game-section-title { font-size: 11px; font-weight: 600; color: #58a6ff; margin: 8px 0 4px; text-transform: uppercase; }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -290,6 +327,15 @@ header h1 { font-size: 16px; font-weight: 600; color: #58a6ff; }
             </table>
         </div>
     </div>
+
+    <!-- Game Log -->
+    <div class="panel grid-full">
+        <div class="panel-title">Game Log (All Players)</div>
+        <div class="panel-body" id="game-body" style="display:flex; gap:16px;">
+            <div style="flex:0 0 340px; overflow-y:auto;" id="game-players"></div>
+            <div style="flex:1; overflow-y:auto;" id="game-messages"></div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -342,7 +388,7 @@ function addEvent(evt) {
 
     // Trigger immediate refresh on turn events
     if (evt.type === 'turn_start' || evt.type === 'turn_end') {
-        fetchStatus(); fetchPerf(); fetchConversation(); fetchLog();
+        fetchStatus(); fetchPerf(); fetchConversation(); fetchLog(); fetchGame();
     }
 }
 
@@ -445,13 +491,46 @@ async function fetchLog() {
     } catch {}
 }
 
+async function fetchGame() {
+    try {
+        const r = await fetch('/api/game?limit=80');
+        const d = await r.json();
+        const players = d.players || [];
+        const msgs = d.messages || [];
+
+        const gamePlayers = document.getElementById('game-players');
+        gamePlayers.innerHTML = `<div class="game-section-title">Scoreboard — Turn ${d.turn || '--'} (${d.year || ''})</div>
+            <table class="player-table">
+                <thead><tr><th>Player</th><th>Gold</th><th>Cities</th><th>Units</th></tr></thead>
+                <tbody>${players.map(p => {
+                    const cls = (!p.is_ai ? ' is-me' : '') + (!p.is_alive ? ' is-dead' : '');
+                    return `<tr class="${cls}">
+                        <td class="p-name">${escHtml(p.name)}${!p.is_ai ? ' (You)' : ''}</td>
+                        <td class="p-gold">${p.gold ?? '?'}</td>
+                        <td class="p-cities">${p.cities}</td>
+                        <td class="p-units">${p.units}</td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table>`;
+
+        const gameMsgs = document.getElementById('game-messages');
+        gameMsgs.innerHTML = `<div class="game-section-title">Server Messages</div>` +
+            msgs.slice(-80).reverse().map(m => {
+                const text = typeof m === 'string' ? m : (m.message || m.text || JSON.stringify(m));
+                const isEvent = typeof m === 'object' && m.event;
+                return `<div class="game-msg">${isEvent ? `<span class="msg-event">[${escHtml(m.event)}]</span> ` : ''}${escHtml(typeof text === 'string' ? text : JSON.stringify(text))}</div>`;
+            }).join('');
+    } catch {}
+}
+
 // --- Init ---
 connectSSE();
-fetchStatus(); fetchPerf(); fetchConversation(); fetchLog();
+fetchStatus(); fetchPerf(); fetchConversation(); fetchLog(); fetchGame();
 setInterval(fetchStatus, 3000);
 setInterval(fetchPerf, 5000);
 setInterval(fetchConversation, 5000);
 setInterval(fetchLog, 5000);
+setInterval(fetchGame, 4000);
 </script>
 
 </body>
