@@ -14,7 +14,7 @@ if _env_path.is_file():
 
 # XBWorld unified server
 SERVER_HOST = os.getenv("XBWORLD_HOST", "localhost")
-SERVER_PORT = int(os.getenv("PORT", os.getenv("XBWORLD_PORT", "8080")))
+SERVER_PORT = int(os.getenv("XBWORLD_PORT", "8080"))
 
 _USE_TLS = SERVER_PORT == 443 or os.getenv("XBWORLD_TLS", "").lower() in ("1", "true")
 _HTTP_SCHEME = "https" if _USE_TLS else "http"

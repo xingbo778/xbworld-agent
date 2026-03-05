@@ -13,6 +13,7 @@ For multi-agent games, use multi_main.py instead.
 import argparse
 import asyncio
 import logging
+import os
 import sys
 
 import uvicorn
@@ -65,8 +66,9 @@ async def main():
                         help="Username for the agent player")
     parser.add_argument("--no-autostart", action="store_true",
                         help="Don't auto-configure and start the game")
-    parser.add_argument("--trace-port", type=int, default=8077,
-                        help="Port for tracing web dashboard (default: 8077)")
+    parser.add_argument("--trace-port", type=int,
+                        default=int(os.environ.get("PORT", "8077")),
+                        help="Port for tracing web dashboard (default: $PORT or 8077)")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable debug logging")
     args = parser.parse_args()
