@@ -1,0 +1,14 @@
+version: "3"
+services:
+  xbworld-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xbworld-agent
+    environment:
+      - PYTHONUNBUFFERED=1
+      - XBWORLD_HOST=host.docker.internal  # Point to game server
+      - XBWORLD_PORT=8080
+      # - LLM_MODEL=openai/gemini-3-flash-preview
+      # - LLM_API_KEY=your-key-here
+      # - LLM_BASE_URL=https://your-llm-endpoint
