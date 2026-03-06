@@ -17,19 +17,19 @@ logger = logging.getLogger("xbworld-agent")
 
 
 def _unit_type_name(client: GameClient, type_id: int) -> str:
-    return client.state.unit_types.get(type_id, {}).get("name", f"unit_{type_id}")
+    return client.state.unit_type_name(type_id)
 
 
 def _tech_name(client: GameClient, tech_id: int) -> str:
-    return client.state.techs.get(tech_id, {}).get("name", f"tech_{tech_id}")
+    return client.state.tech_name(tech_id)
 
 
 def _building_name(client: GameClient, building_id: int) -> str:
-    return client.state.buildings.get(building_id, {}).get("name", f"building_{building_id}")
+    return client.state.building_name(building_id)
 
 
 def _terrain_name(client: GameClient, terrain_id: int) -> str:
-    return client.state.terrains.get(terrain_id, {}).get("name", f"terrain_{terrain_id}")
+    return client.state.terrain_name(terrain_id)
 
 
 def _city_json(client: GameClient, city: dict) -> dict:

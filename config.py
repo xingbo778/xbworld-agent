@@ -8,9 +8,20 @@ _env_path = Path(__file__).resolve().parent / ".env"
 if _env_path.is_file():
     for _line in _env_path.read_text().splitlines():
         _line = _line.strip()
-        if _line and not _line.startswith("#") and "=" in _line:
-            _key, _, _val = _line.partition("=")
-            os.environ.setdefault(_key.strip(), _val.strip())
+        if not _line or _line.startswith("#"):
+            continue
+        # Support 'export KEY=VALUE' syntax
+        if _line.startswith("export "):
+            _line = _line[7:].strip()
+        if "=" not in _line:
+            continue
+        _key, _, _val = _line.partition("=")
+        _key = _key.strip()
+        _val = _val.strip()
+        # Strip surrounding quotes (single or double)
+        if len(_val) >= 2 and _val[0] == _val[-1] and _val[0] in ('"', "'"):
+            _val = _val[1:-1]
+        os.environ.setdefault(_key, _val)
 
 # XBWorld unified server
 SERVER_HOST = os.getenv("XBWORLD_HOST", "localhost")
@@ -23,10 +34,6 @@ _PORT_SUFFIX = "" if SERVER_PORT in (80, 443) else f":{SERVER_PORT}"
 
 LAUNCHER_URL = f"{_HTTP_SCHEME}://{SERVER_HOST}{_PORT_SUFFIX}/civclientlauncher"
 WS_BASE_URL = f"{_WS_SCHEME}://{SERVER_HOST}{_PORT_SUFFIX}/civsocket"
-
-# Legacy aliases (for backward compatibility)
-NGINX_HOST = SERVER_HOST
-NGINX_PORT = SERVER_PORT
 
 # Game protocol (server compatibility — must match freeciv-server)
 FREECIV_VERSION = "+Freeciv.Web.Devel-3.3"

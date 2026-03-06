@@ -13,7 +13,7 @@ import os
 import sys
 import time
 
-from config import NGINX_HOST, NGINX_PORT
+from config import SERVER_HOST, SERVER_PORT
 from game_client import GameClient
 from agent import XBWorldAgent
 
@@ -160,7 +160,7 @@ async def run_test():
     clients.append(first)
     logger.info("First agent connected to port %d", port)
     logger.info("Observe: http://%s:%d/webclient/?action=observe&civserverport=%d",
-                NGINX_HOST, NGINX_PORT, port)
+                SERVER_HOST, SERVER_PORT, port)
 
     await asyncio.sleep(5)
 

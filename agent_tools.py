@@ -125,15 +125,29 @@ tool = TOOL_REGISTRY.register
 # ---------------------------------------------------------------------------
 
 def _unit_type_name(client: GameClient, type_id: int) -> str:
-    return client.state.unit_types.get(type_id, {}).get("name", f"?unit:{type_id}")
+    return client.state.unit_type_name(type_id)
 
 
 def _tech_name(client: GameClient, tech_id: int) -> str:
-    return client.state.techs.get(tech_id, {}).get("name", f"tech_{tech_id}")
+    return client.state.tech_name(tech_id)
 
 
 def _building_name(client: GameClient, building_id: int) -> str:
-    return client.state.buildings.get(building_id, {}).get("name", f"building_{building_id}")
+    return client.state.building_name(building_id)
+
+
+def _resolve_production(client: GameClient, production_name: str):
+    """Match a production name to (kind, id, display_name) or None."""
+    pn = production_name.strip().lower()
+    for uid, ut in client.state.unit_types.items():
+        name = ut.get("name", "").lower()
+        if name == pn or name == pn + "s" or name.rstrip("s") == pn:
+            return 1, uid, ut.get("name")
+    for bid, b in client.state.buildings.items():
+        name = b.get("name", "").lower()
+        if name == pn or name == pn + "s" or name.rstrip("s") == pn:
+            return 0, bid, b.get("name")
+    return None
 
 
 DIRECTION_NAMES = {
@@ -319,25 +333,19 @@ async def set_research_target(client: GameClient, tech_name: str) -> str:
           "production_name": {"type": "string", "description": "Unit or building name"},
       }, "required": ["city_id", "production_name"]})
 async def change_city_production(client: GameClient, city_id: int, production_name: str) -> str:
-    pn = production_name.strip().lower()
     city = client.state.cities.get(city_id)
     cur_kind = city.get("production_kind", -1) if city else -1
     cur_value = city.get("production_value", -1) if city else -1
 
-    for uid, ut in client.state.unit_types.items():
-        name = ut.get("name", "").lower()
-        if name == pn or name == pn + "s" or name.rstrip("s") == pn:
-            if cur_kind == 1 and cur_value == uid:
-                return f"City {city_id} already producing unit: {ut.get('name')} — no change needed."
-            await client.city_change_production(city_id, 1, uid)
-            return f"City {city_id} now producing unit: {ut.get('name')}"
-    for bid, b in client.state.buildings.items():
-        name = b.get("name", "").lower()
-        if name == pn or name == pn + "s" or name.rstrip("s") == pn:
-            if cur_kind == 0 and cur_value == bid:
-                return f"City {city_id} already producing building: {b.get('name')} — no change needed."
-            await client.city_change_production(city_id, 0, bid)
-            return f"City {city_id} now producing building: {b.get('name')}"
+    match = _resolve_production(client, production_name)
+    if match:
+        kind, prod_id, display_name = match
+        if cur_kind == kind and cur_value == prod_id:
+            label = "unit" if kind == 1 else "building"
+            return f"City {city_id} already producing {label}: {display_name} — no change needed."
+        await client.city_change_production(city_id, kind, prod_id)
+        label = "unit" if kind == 1 else "building"
+        return f"City {city_id} now producing {label}: {display_name}"
     avail_units = [ut.get("name", "?") for ut in client.state.unit_types.values()][:15]
     return f"Production '{production_name}' not found. Available units: {', '.join(avail_units)}"
 
@@ -354,7 +362,7 @@ async def buy_city_production(client: GameClient, city_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 def _terrain_name(client: GameClient, terrain_id: int) -> str:
-    return client.state.terrains.get(terrain_id, {}).get("name", f"terrain_{terrain_id}")
+    return client.state.terrain_name(terrain_id)
 
 
 @tool("get_tile_info", "Get terrain info for a tile (useful before founding a city).",
@@ -429,12 +437,15 @@ async def found_city(client: GameClient, unit_id: int, city_name: str = "") -> s
 
     if not city_name or not city_name.strip():
         city_name = f"City{len(client.state.my_cities()) + 1}"
-    from urllib.parse import quote
-    encoded_name = quote(city_name.strip(), safe="")
     cities_before = len(client.state.my_cities())
-    await client.unit_found_city(unit_id, encoded_name)
-    await asyncio.sleep(0.8)
-    cities_after = len(client.state.my_cities())
+    await client.unit_found_city(unit_id, city_name.strip())
+    # Wait for server to process the city founding (poll instead of fixed sleep)
+    cities_after = cities_before
+    for _ in range(8):
+        await asyncio.sleep(0.1)
+        cities_after = len(client.state.my_cities())
+        if cities_after > cities_before or unit_id not in client.state.units:
+            break
     if cities_after > cities_before:
         return f"SUCCESS: City '{city_name}' founded at tile {tile}. Now have {cities_after} cities."
     if unit_id not in client.state.units:
@@ -532,25 +543,14 @@ async def set_productions(client: GameClient, productions: list) -> str:
     results = []
     for p in productions:
         cid = p.get("city_id")
-        pname = str(p.get("production_name", "")).strip().lower()
-        found = False
-        for uid, ut in client.state.unit_types.items():
-            name = ut.get("name", "").lower()
-            if name == pname or name == pname + "s" or name.rstrip("s") == pname:
-                await client.city_change_production(cid, 1, uid)
-                results.append(f"City {cid}: now producing {ut.get('name')}")
-                found = True
-                break
-        if not found:
-            for bid, b in client.state.buildings.items():
-                name = b.get("name", "").lower()
-                if name == pname or name == pname + "s" or name.rstrip("s") == pname:
-                    await client.city_change_production(cid, 0, bid)
-                    results.append(f"City {cid}: now producing {b.get('name')}")
-                    found = True
-                    break
-        if not found:
-            results.append(f"City {cid}: '{p.get('production_name')}' not found")
+        pname = str(p.get("production_name", ""))
+        match = _resolve_production(client, pname)
+        if match:
+            kind, prod_id, display_name = match
+            await client.city_change_production(cid, kind, prod_id)
+            results.append(f"City {cid}: now producing {display_name}")
+        else:
+            results.append(f"City {cid}: '{pname}' not found")
     return "\n".join(results)
 
 

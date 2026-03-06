@@ -199,11 +199,26 @@ class XBWorldAgent:
         if len(self.action_log) > 500:
             self.action_log = self.action_log[-500:]
 
+    _LOG_MAX_SIZE = 10 * 1024 * 1024  # 10 MB
+
     def _log_llm_detail(self, event_type: str, data: dict):
-        """Append a detailed JSON log entry to the agent's log file."""
+        """Append a detailed JSON log entry to the agent's log file.
+
+        Rotates the log file when it exceeds _LOG_MAX_SIZE by renaming
+        the current file to .1 (overwriting any previous backup).
+        """
         log_dir = os.path.join(os.path.dirname(__file__), "logs")
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, f"{self.name.lower()}_llm.jsonl")
+
+        # Rotate if file is too large
+        try:
+            if os.path.exists(log_file) and os.path.getsize(log_file) > self._LOG_MAX_SIZE:
+                backup = log_file + ".1"
+                os.replace(log_file, backup)
+        except OSError:
+            pass
+
         entry = {
             "ts": time.strftime("%H:%M:%S"),
             "turn": self.client.state.turn,
@@ -494,14 +509,48 @@ class XBWorldAgent:
         while start < len(recent) and recent[start].get("role") == "tool":
             start += 1
 
-        # Also ensure we don't start with an assistant message that has tool_calls
-        # without the corresponding tool responses
+        # If first remaining message is an assistant with tool_calls, skip it and
+        # any following tool responses — they form an incomplete group without the
+        # preceding context.
+        while start < len(recent):
+            msg = recent[start]
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # Skip this assistant message and all subsequent tool responses
+                start += 1
+                while start < len(recent) and recent[start].get("role") == "tool":
+                    start += 1
+            else:
+                break
+
         cleaned = recent[start:]
 
+        # Validate: ensure every assistant.tool_calls has matching tool responses
+        validated = []
+        i = 0
+        while i < len(cleaned):
+            msg = cleaned[i]
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                tool_call_ids = {tc.get("id") for tc in msg["tool_calls"] if tc.get("id")}
+                # Collect subsequent tool responses
+                j = i + 1
+                found_ids = set()
+                while j < len(cleaned) and cleaned[j].get("role") == "tool":
+                    tid = cleaned[j].get("tool_call_id")
+                    if tid:
+                        found_ids.add(tid)
+                    j += 1
+                # Only keep this group if all tool_calls have responses
+                if not tool_call_ids or tool_call_ids <= found_ids:
+                    validated.extend(cleaned[i:j])
+                i = j
+            else:
+                validated.append(msg)
+                i += 1
+
         if system_msg:
-            self.conversation = [system_msg] + cleaned
+            self.conversation = [system_msg] + validated
         else:
-            self.conversation = cleaned
+            self.conversation = validated
 
     def get_conversation_safe(self, limit: int = 20) -> list[dict]:
         """Return recent conversation messages, sanitized for JSON serialization."""

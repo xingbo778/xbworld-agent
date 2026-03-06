@@ -40,7 +40,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import uvicorn
 
 from config import (
-    LAUNCHER_URL, API_HOST, API_PORT, NGINX_HOST, NGINX_PORT,
+    LAUNCHER_URL, API_HOST, API_PORT, SERVER_HOST, SERVER_PORT,
     LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, GAME_TURN_TIMEOUT,
 )
 from game_client import GameClient
@@ -83,33 +83,7 @@ def _find_free_port(start: int = 6000, end: int = 6100) -> int:
     raise RuntimeError(f"No free port in {start}-{end}")
 
 
-class EventBus:
-    """Simple pub/sub for SSE game events."""
-
-    def __init__(self):
-        self._subscribers: list[asyncio.Queue] = []
-
-    def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue(maxsize=200)
-        self._subscribers.append(q)
-        return q
-
-    def unsubscribe(self, q: asyncio.Queue):
-        try:
-            self._subscribers.remove(q)
-        except ValueError:
-            pass
-
-    def publish(self, event: dict):
-        for q in self._subscribers:
-            try:
-                q.put_nowait(event)
-            except asyncio.QueueFull:
-                try:
-                    q.get_nowait()
-                    q.put_nowait(event)
-                except (asyncio.QueueEmpty, asyncio.QueueFull):
-                    pass
+from event_bus import EventBus
 
 
 class GameOrchestrator:
@@ -205,16 +179,14 @@ class GameOrchestrator:
 
         self.clients[agent_configs[0]["name"]] = first_client
 
-        await asyncio.sleep(2)
-
-        if not first_client.state.connected:
+        if not await first_client.wait_for_connection(timeout=10.0):
             raise ConnectionError("First agent failed to connect")
 
         for cfg in agent_configs[1:]:
             client = GameClient(username=cfg["name"])
             await client.join_game(self.server_port)
             self.clients[cfg["name"]] = client
-            await asyncio.sleep(1)
+            await client.wait_for_connection(timeout=5.0)
 
         for cfg in agent_configs:
             client = self.clients[cfg["name"]]
@@ -231,24 +203,21 @@ class GameOrchestrator:
         total_players = len(agent_configs) + aifill
         if aifill > 0:
             await first_client.send_chat(f"/set aifill {total_players}")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
         effective_timeout = turn_timeout if turn_timeout is not None else GAME_TURN_TIMEOUT
         await first_client.send_chat(f"/set timeout {effective_timeout}")
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
 
         logger.info("All %d agents connected to port %d. Starting game...",
                      len(agent_configs), self.server_port)
 
         for name, client in self.clients.items():
             await client.send_chat("/start")
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.2)
 
-        for i in range(15):
-            await asyncio.sleep(1)
-            turns = {n: c.state.turn for n, c in self.clients.items()}
-            logger.debug("Waiting for game start... %s", turns)
-            if any(t >= 1 for t in turns.values()):
-                break
+        # Wait for any client to reach turn >= 1 (game started)
+        if not await first_client.wait_for_phase("playing", timeout=15.0):
+            logger.warning("Game may not have started yet, continuing anyway")
 
         for name, agent in self.agents.items():
             task = asyncio.create_task(agent.run_game_loop())
@@ -345,7 +314,7 @@ async def api_create_game(body: dict):
     return {
         "status": "ok",
         "server_port": port,
-        "observe_url": f"http://{NGINX_HOST}:{NGINX_PORT}/webclient/?action=observe&civserverport={port}",
+        "observe_url": f"http://{SERVER_HOST}:{SERVER_PORT}/webclient/?action=observe&civserverport={port}",
         "agents": names,
     }
 
@@ -359,7 +328,7 @@ async def api_game_status():
     return {
         "status": "running",
         "server_port": port,
-        "observe_url": f"http://{NGINX_HOST}:{NGINX_PORT}/webclient/?action=observe&civserverport={port}",
+        "observe_url": f"http://{SERVER_HOST}:{SERVER_PORT}/webclient/?action=observe&civserverport={port}",
         "agents": [a.get_status() for a in orchestrator.agents.values()],
     }
 
@@ -443,7 +412,7 @@ async def api_join_game(body: dict):
         "username": username,
         "server_port": orchestrator.server_port,
         "proxy_port": proxy_port,
-        "ws_url": f"ws://{NGINX_HOST}:{NGINX_PORT}/civsocket/{proxy_port}",
+        "ws_url": f"ws://{SERVER_HOST}:{SERVER_PORT}/civsocket/{proxy_port}",
         "tools": TOOL_REGISTRY.openai_definitions(),
     }
 

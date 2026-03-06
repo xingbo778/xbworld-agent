@@ -8,6 +8,8 @@ session is passed in from the caller so it can be reused across calls.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any
@@ -15,6 +17,10 @@ from typing import Any
 import aiohttp
 
 logger = logging.getLogger("xbworld-agent")
+
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 3
+_BACKOFF_BASE = 2.0  # seconds
 
 
 class LLMProvider(ABC):
@@ -80,15 +86,33 @@ class GeminiProvider(LLMProvider):
             body["systemInstruction"] = {"parts": [{"text": system_text}]}
 
         logger.debug("[gemini] POST %s (contents=%d, tools=%d)", url, len(contents), len(tool_definitions))
-        async with session.post(url, json=body, headers=headers) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                logger.error("[gemini] HTTP %d: %s", resp.status, text[:300])
-                raise RuntimeError(f"Gemini HTTP {resp.status}: {text[:500]}")
-            data = await resp.json()
-            candidates = data.get("candidates", [])
-            logger.debug("[gemini] Response: %d candidates", len(candidates))
-            return data
+        last_err = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                async with session.post(url, json=body, headers=headers) as resp:
+                    if resp.status in _RETRYABLE_STATUS_CODES and attempt < _MAX_RETRIES:
+                        text = await resp.text()
+                        logger.warning("[gemini] HTTP %d (attempt %d/%d), retrying: %s",
+                                       resp.status, attempt + 1, _MAX_RETRIES + 1, text[:200])
+                        await asyncio.sleep(_BACKOFF_BASE ** attempt)
+                        continue
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logger.error("[gemini] HTTP %d: %s", resp.status, text[:300])
+                        raise RuntimeError(f"Gemini HTTP {resp.status}: {text[:500]}")
+                    data = await resp.json()
+                    candidates = data.get("candidates", [])
+                    logger.debug("[gemini] Response: %d candidates", len(candidates))
+                    return data
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                last_err = e
+                if attempt < _MAX_RETRIES:
+                    logger.warning("[gemini] Request failed (attempt %d/%d): %s",
+                                   attempt + 1, _MAX_RETRIES + 1, e)
+                    await asyncio.sleep(_BACKOFF_BASE ** attempt)
+                    continue
+                raise
+        raise RuntimeError(f"Gemini request failed after {_MAX_RETRIES + 1} attempts: {last_err}")
 
     def parse_response(self, data):
         if not data:
@@ -242,16 +266,34 @@ class OpenAIProvider(LLMProvider):
         }
 
         logger.debug("[openai] POST %s model=%s (msgs=%d, tools=%d)", url, self.model, len(clean_msgs), len(tool_definitions))
-        async with session.post(url, json=body, headers=headers) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                logger.error("[openai] HTTP %d: %s", resp.status, text[:300])
-                raise RuntimeError(f"OpenAI HTTP {resp.status}: {text[:500]}")
-            data = await resp.json()
-            choices = data.get("choices", [])
-            usage = data.get("usage", {})
-            logger.debug("[openai] Response: %d choices, usage=%s", len(choices), usage)
-            return data
+        last_err = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                async with session.post(url, json=body, headers=headers) as resp:
+                    if resp.status in _RETRYABLE_STATUS_CODES and attempt < _MAX_RETRIES:
+                        text = await resp.text()
+                        logger.warning("[openai] HTTP %d (attempt %d/%d), retrying: %s",
+                                       resp.status, attempt + 1, _MAX_RETRIES + 1, text[:200])
+                        await asyncio.sleep(_BACKOFF_BASE ** attempt)
+                        continue
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logger.error("[openai] HTTP %d: %s", resp.status, text[:300])
+                        raise RuntimeError(f"OpenAI HTTP {resp.status}: {text[:500]}")
+                    data = await resp.json()
+                    choices = data.get("choices", [])
+                    usage = data.get("usage", {})
+                    logger.debug("[openai] Response: %d choices, usage=%s", len(choices), usage)
+                    return data
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                last_err = e
+                if attempt < _MAX_RETRIES:
+                    logger.warning("[openai] Request failed (attempt %d/%d): %s",
+                                   attempt + 1, _MAX_RETRIES + 1, e)
+                    await asyncio.sleep(_BACKOFF_BASE ** attempt)
+                    continue
+                raise
+        raise RuntimeError(f"OpenAI request failed after {_MAX_RETRIES + 1} attempts: {last_err}")
 
     def parse_response(self, data):
         if not data:
@@ -265,7 +307,6 @@ class OpenAIProvider(LLMProvider):
         tool_calls = []
         for tc in tool_calls_raw:
             fn = tc.get("function", {})
-            import json
             try:
                 args = json.loads(fn.get("arguments", "{}"))
             except json.JSONDecodeError:
