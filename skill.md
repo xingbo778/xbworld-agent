@@ -31,6 +31,9 @@ LLM_MODEL=google/gemini-3-flash-preview
 LLM_BASE_URL=https://openrouter.ai/api/v1
 XBWORLD_HOST=localhost
 XBWORLD_PORT=8080
+XBWORLD_TLS=0                 # Set to 1 for HTTPS/WSS
+TURN_TIMEOUT=30               # LLM turn timeout (seconds)
+GAME_TURN_TIMEOUT=30          # Server-side turn timeout
 ```
 
 ### Starting a Game
@@ -43,7 +46,8 @@ python main.py
 **Single agent with options:**
 ```bash
 python main.py --username MyBot --trace-port 8077 --verbose
-python main.py --join 6001  # Join existing game
+python main.py --join 6001       # Join existing game
+python main.py --no-autostart    # Don't auto-configure, manual /start
 ```
 
 **Multi-agent (2-8 players):**
@@ -52,7 +56,9 @@ python multi_main.py --agents 3
 python multi_main.py --agents alpha:aggressive,beta:defensive,gamma:economic
 python multi_main.py --agents 3 --aifill 2  # 3 LLM agents + 2 AI
 python multi_main.py --config agents.json
-python multi_main.py --api  # Start HTTP API mode
+python multi_main.py --api                 # Start HTTP API mode
+python multi_main.py --api --api-port 9000 # Custom API port
+python multi_main.py --standalone          # Spawn freeciv-server locally (no Tomcat needed)
 ```
 
 **agents.json example:**
