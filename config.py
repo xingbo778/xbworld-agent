@@ -50,6 +50,8 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 MAX_MESSAGES_KEPT = 200
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT", "30"))
 GAME_TURN_TIMEOUT = int(os.getenv("GAME_TURN_TIMEOUT", "30"))
+LLM_MAX_ITERATIONS = int(os.getenv("LLM_MAX_ITERATIONS", "5"))
+INTER_TURN_DELAY_SECONDS = int(os.getenv("INTER_TURN_DELAY", "0"))
 
 # Multi-agent HTTP API
 API_HOST = os.getenv("XBWORLD_API_HOST", "0.0.0.0")

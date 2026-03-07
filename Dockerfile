@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY config.py agent.py agent_tools.py game_client.py \
      decision_engine.py llm_providers.py state_api.py \
-     main.py multi_main.py run_remote.py trace_server.py ./
+     event_bus.py main.py multi_main.py run_remote.py trace_server.py ./
 
 ENV PYTHONUNBUFFERED=1
 

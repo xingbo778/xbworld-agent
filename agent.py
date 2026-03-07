@@ -16,7 +16,7 @@ from collections import defaultdict
 
 import aiohttp
 
-from config import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, TURN_TIMEOUT_SECONDS
+from config import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, TURN_TIMEOUT_SECONDS, LLM_MAX_ITERATIONS, INTER_TURN_DELAY_SECONDS
 from game_client import GameClient
 from agent_tools import (
     TOOL_REGISTRY,
@@ -377,6 +377,10 @@ class XBWorldAgent:
         self._log_llm_detail("turn_perf", perf_summary)
         self._publish_event("turn_end", perf_summary)
 
+        if INTER_TURN_DELAY_SECONDS > 0:
+            logger.info("[%s] Inter-turn delay %ds", self.name, INTER_TURN_DELAY_SECONDS)
+            await asyncio.sleep(INTER_TURN_DELAY_SECONDS)
+
         p = self.client.state.my_player() or {}
         logger.info("[%s] === TURN %d END === perf: total=%.1fs llm=%.1fs tool=%.1fs idle=%.1fs "
                      "calls=%d/%d | gold=%s cities=%d units=%d",
@@ -422,7 +426,7 @@ class XBWorldAgent:
 
     async def _llm_loop(self):
         """Call LLM with tools, execute tool calls, repeat until done."""
-        max_iterations = 5
+        max_iterations = LLM_MAX_ITERATIONS
         for iteration in range(max_iterations):
             logger.debug("[%s] LLM loop iteration %d/%d", self.name, iteration + 1, max_iterations)
             try:
