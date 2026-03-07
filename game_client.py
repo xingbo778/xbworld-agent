@@ -104,13 +104,13 @@ ACTIVITY_SENTRY = 5
 ACTIVITY_EXPLORE = 8
 ACTIVITY_FORTIFYING = 10
 
-# Action types for PACKET_UNIT_DO_ACTION
-ACTION_FOUND_CITY = 27
-ACTION_JOIN_CITY = 28
-ACTION_ATTACK = 45
-ACTION_DISBAND_UNIT = 51
-ACTION_FORTIFY = 125
-ACTION_COUNT = 139  # "no action" sentinel
+# Action types for PACKET_UNIT_DO_ACTION (freeciv 3.4 values)
+ACTION_FOUND_CITY = 28    # was 27 in 3.3
+ACTION_JOIN_CITY = 29     # was 28 in 3.3
+ACTION_ATTACK = 46        # was 45 in 3.3
+ACTION_DISBAND_UNIT = 40  # was 51 in 3.3
+ACTION_FORTIFY = 126      # was 125 in 3.3
+ACTION_COUNT = 143        # was 139 in 3.3; "no action" sentinel
 
 # Server-side agent
 SSA_NONE = 0
