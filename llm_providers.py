@@ -313,6 +313,20 @@ class OpenAIProvider(LLMProvider):
                 args = {}
             tool_calls.append({"name": fn.get("name", ""), "args": args, "id": tc.get("id")})
 
+        # Fallback: some models (e.g. DeepSeek v3) output tool calls as a JSON
+        # code block in text instead of using the tool_calls field.
+        if not tool_calls and text:
+            import re
+            for block in re.findall(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text):
+                try:
+                    obj = json.loads(block)
+                    if "name" in obj and "arguments" in obj:
+                        args = obj["arguments"] if isinstance(obj["arguments"], dict) else json.loads(obj["arguments"])
+                        tool_calls.append({"name": obj["name"], "args": args, "id": None})
+                        logger.debug("[openai] Fallback parsed tool call from text: %s", obj["name"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         return {
             "text": text,
             "tool_calls": tool_calls,

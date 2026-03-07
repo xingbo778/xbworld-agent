@@ -15,6 +15,9 @@ COPY config.py agent.py agent_tools.py game_client.py \
      decision_engine.py llm_providers.py state_api.py \
      event_bus.py main.py multi_main.py run_remote.py trace_server.py ./
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    AGENT_MODE=single
 
-CMD ["python3", "main.py"]
+# AGENT_MODE=single  → single autonomous agent (main.py)
+# AGENT_MODE=multi   → multi-agent HTTP API (multi_main.py --api)
+CMD ["sh", "-c", "if [ \"$AGENT_MODE\" = 'multi' ]; then exec python3 multi_main.py --api; else exec python3 main.py; fi"]
