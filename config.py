@@ -36,9 +36,11 @@ LAUNCHER_URL = f"{_HTTP_SCHEME}://{SERVER_HOST}{_PORT_SUFFIX}/civclientlauncher"
 WS_BASE_URL = f"{_WS_SCHEME}://{SERVER_HOST}{_PORT_SUFFIX}/civsocket"
 
 # Game protocol (server compatibility — must match freeciv-server)
-FREECIV_VERSION = "+Freeciv.Web.Devel-3.4"
+# Override FREECIV_VERSION env var to match the deployed server binary version.
+# Use "+Freeciv.Web.Devel-3.3" for the legacy 3.2 server, "+Freeciv.Web.Devel-3.4" for 3.4.
+FREECIV_VERSION = os.getenv("FREECIV_VERSION", "+Freeciv.Web.Devel-3.4")
 MAJOR_VERSION = 3
-MINOR_VERSION = 3
+MINOR_VERSION = int(os.getenv("FREECIV_MINOR_VERSION", "3"))
 PATCH_VERSION = 90
 
 # LLM configuration
