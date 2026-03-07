@@ -319,6 +319,13 @@ async def api_create_game(body: dict):
     }
 
 
+@app.get("/api/status")
+@app.get("/healthz")
+async def api_health():
+    """Railway health check endpoint."""
+    return {"status": "ok"}
+
+
 @app.get("/game/status")
 async def api_game_status():
     """Get status of all agents."""
