@@ -351,6 +351,67 @@ class GameClient:
 
         return new_x + new_y * xsize
 
+    def _find_path(self, src_tile_id: int, dest_tile_id: int) -> list[int] | None:
+        """BFS shortest path from src to dest. Returns list of direction ints (0-7),
+        or None if unreachable. Respects map wrapping via _compute_dest_tile."""
+        if src_tile_id == dest_tile_id:
+            return []
+        from collections import deque
+        queue: deque[tuple[int, list[int]]] = deque([(src_tile_id, [])])
+        visited: set[int] = {src_tile_id}
+        while queue:
+            current, path = queue.popleft()
+            for direction in range(8):
+                neighbor = self._compute_dest_tile(current, direction)
+                if neighbor == current:
+                    continue
+                if neighbor == dest_tile_id:
+                    return path + [direction]
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, path + [direction]))
+        return None
+
+    async def unit_goto(self, unit_id: int, dest_tile_id: int) -> bool:
+        """Send a multi-step goto order to move unit to dest_tile_id.
+
+        Pathfinds in Python (BFS, ignores terrain passability — server will
+        reject individual steps that are illegal) and sends PACKET_UNIT_ORDERS
+        with the full direction sequence. Returns False if no path found."""
+        unit = self.state.units.get(unit_id)
+        if not unit:
+            logger.warning("[%s] unit_goto: unit %d not found", self.username, unit_id)
+            return False
+        src_tile = unit.get("tile", 0)
+        if src_tile == dest_tile_id:
+            return True
+        path = self._find_path(src_tile, dest_tile_id)
+        if path is None:
+            logger.warning("[%s] unit_goto: no path from %d to %d",
+                           self.username, src_tile, dest_tile_id)
+            return False
+        orders = [{
+            "order": ORDER_ACTION_MOVE,
+            "activity": ACTIVITY_IDLE,
+            "target": 0,
+            "sub_target": 0,
+            "action": ACTION_COUNT,
+            "dir": direction,
+        } for direction in path]
+        logger.debug("[%s] unit_goto: unit=%d path_len=%d to tile=%d",
+                     self.username, unit_id, len(orders), dest_tile_id)
+        await self.send_packet({
+            "pid": PACKET_UNIT_ORDERS,
+            "unit_id": unit_id,
+            "src_tile": src_tile,
+            "length": len(orders),
+            "repeat": False,
+            "vigilant": False,
+            "dest_tile": dest_tile_id,
+            "orders": orders,
+        })
+        return True
+
     async def unit_move(self, unit_id: int, direction: int):
         """Move a unit one step in the given direction (0-7).
         Directions: 0=NW, 1=N, 2=NE, 3=W, 4=E, 5=SW, 6=S, 7=SE."""

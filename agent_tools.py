@@ -378,6 +378,22 @@ def get_tile_info(client: GameClient, tile_id: int) -> str:
     return f"Tile {tile_id}: terrain={terrain}, continent={continent}, extras={extras}"
 
 
+@tool("goto_unit", "Move a unit to a specific tile ID using pathfinding. More efficient than chaining move_unit calls for long distances.",
+      params={"type": "object", "properties": {
+          "unit_id": {"type": "integer", "description": "Unit ID to move"},
+          "dest_tile_id": {"type": "integer", "description": "Destination tile ID"},
+      }, "required": ["unit_id", "dest_tile_id"]})
+async def goto_unit(client: GameClient, unit_id: int, dest_tile_id: int) -> str:
+    unit, type_name = _resolve_unit(client, unit_id)
+    if not unit:
+        return type_name
+    src_tile = unit.get("tile", 0)
+    ok = await client.unit_goto(unit_id, dest_tile_id)
+    if not ok:
+        return f"No path found for {type_name} [{unit_id}] from tile {src_tile} to tile {dest_tile_id}."
+    return f"{type_name} [{unit_id}] goto orders sent: tile {src_tile} → {dest_tile_id}."
+
+
 @tool("move_unit", "Move a unit one tile in a direction: N, NE, E, SE, S, SW, W, NW.",
       params={"type": "object", "properties": {
           "unit_id": {"type": "integer", "description": "Unit ID"},
