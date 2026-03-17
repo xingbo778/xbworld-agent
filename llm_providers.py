@@ -263,6 +263,7 @@ class OpenAIProvider(LLMProvider):
             "model": self.model,
             "messages": clean_msgs,
             "tools": tool_definitions,
+            "max_tokens": 4096,
         }
 
         logger.debug("[openai] POST %s model=%s (msgs=%d, tools=%d)", url, self.model, len(clean_msgs), len(tool_definitions))
