@@ -275,6 +275,16 @@ _static_dir = Path(__file__).parent / "static"
 if _static_dir.exists():
     app.mount("/observe", StaticFiles(directory=str(_static_dir), html=True), name="observer")
 
+# Admin dashboard (mounted after game routes so /admin/* doesn't conflict)
+from admin_server import create_admin_app
+
+_admin_app = create_admin_app(
+    agent=next(iter(orchestrator.agents.values()), None) if orchestrator.agents else None,
+    client=next(iter(orchestrator.clients.values()), None) if orchestrator.clients else None,
+    event_bus=orchestrator.events,
+)
+app.mount("/admin", _admin_app)
+
 
 @app.post("/game/create")
 async def api_create_game(body: dict):

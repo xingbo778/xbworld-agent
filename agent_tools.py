@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Callable, get_type_hints
 
 from game_client import GameClient
+from admin_config import get_config
 
 logger = logging.getLogger("xbworld-agent")
 
@@ -416,7 +417,7 @@ async def move_unit(client: GameClient, unit_id: int, direction: str) -> str:
     return f"Moved {type_name} [{unit_id}] direction {direction}."
 
 
-@tool("found_city", "Found a new city with a Settler unit on its current tile. You MUST provide a city_name. Make sure the settler is far enough from existing cities (at least 4 tiles away).",
+@tool("found_city", "Found a new city with a Settler unit on its current tile. You MUST provide a city_name. Make sure the settler is far enough from existing cities (distance configured via admin).",
       params={"type": "object", "properties": {
           "unit_id": {"type": "integer", "description": "Settler unit ID"},
           "city_name": {"type": "string", "description": "Name for the new city (REQUIRED — server rejects empty names)"},
@@ -445,9 +446,10 @@ async def found_city(client: GameClient, unit_id: int, city_name: str = "") -> s
             cx = ct_data.get("x", ct % xsize if xsize else 0)
             cy = ct_data.get("y", ct // xsize if xsize else 0)
             dist = abs(tx - cx) + abs(ty - cy)
-            if dist < 4:
+            min_dist = get_config().min_city_distance
+            if dist < min_dist:
                 return (f"TOO CLOSE: Settler [{unit_id}] at tile {tile} is only {dist} tiles from "
-                        f"city '{c.get('name', '?')}'. Move the settler at least 4 tiles away "
+                        f"city '{c.get('name', '?')}'. Move the settler at least {min_dist} tiles away "
                         f"from all existing cities before founding. Use auto_explore_unit or "
                         f"move_unit to relocate it.")
 
@@ -470,9 +472,10 @@ async def found_city(client: GameClient, unit_id: int, city_name: str = "") -> s
     terrain_id = tile_data.get("terrain", -1)
     terrain = _terrain_name(client, terrain_id)
     continent = tile_data.get("continent", 0)
+    min_dist = get_config().min_city_distance
     return (f"FAILED: Settler [{unit_id}] at tile {tile} (MP={mp}, terrain={terrain}, continent={continent}). "
             f"City NOT founded — tile may be invalid (ocean/existing city/too close to another city). "
-            f"Move the settler at least 4-5 tiles away from existing cities and try next turn.")
+            f"Move the settler at least {min_dist} tiles away from existing cities and try next turn.")
 
 
 @tool("fortify_unit", "Fortify a military unit for a defense bonus.",
