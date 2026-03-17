@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 
 from event_bus import EventBus
 from state_api import game_state_to_json
+from admin_server import create_admin_app
 
 # Load dashboard HTML from file (falls back to minimal message if missing)
 _TRACE_HTML_PATH = Path(__file__).parent / "static" / "trace.html"
@@ -102,6 +103,9 @@ def create_trace_app(agent, client, event_bus: EventBus) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    admin_app = create_admin_app(agent=agent, client=client, event_bus=event_bus)
+    app.mount("/admin", admin_app)
 
     return app
 
